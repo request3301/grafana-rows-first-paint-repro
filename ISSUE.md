@@ -51,7 +51,7 @@ scenes test suite pass):
 https://github.com/request3301/grafana-rows-first-paint-repro/blob/main/proposed-fix/scenes-SceneGridLayoutRenderer.diff
 
 We tested the same change as a yarn patch of `@grafana/scenes@8.2.6` on a Grafana v13.1.0 source build.
-The titles-only frame no longer appears (0 of 5 runs at 1x/4x CPU, and on our production dashboards).
+The titles-only frame no longer appears (0 of 5 runs at 1x/4x CPU, and on our own dashboards).
 Panel geometry is unchanged for load, resize, row collapse/expand and view panel.
 Time to panels is the same or better (10.4 s vs 13.1 s at 4x CPU on a 131-panel dashboard).
 Happy to open a PR in grafana/scenes.
@@ -63,6 +63,6 @@ No, it is in the dashboard layout (`RowsLayout` / `SceneGridLayout`).
 ### Environment
 
 - Grafana: 13.1.0 and 13.3.0 (OSS docker images); `@grafana/scenes` 8.2.6 and current `main` (useMeasure still used)
-- Browser: Chromium (headless and desktop), Chrome
+- Browser: Chromium 156 (headless, Playwright)
 - OS: Linux (Docker)
 - Datasource: TestData (any datasource)
