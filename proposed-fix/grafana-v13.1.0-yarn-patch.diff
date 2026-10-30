@@ -1,0 +1,202 @@
+diff --git a/.yarn/patches/@grafana-scenes-npm-8.2.6-4c67e9d1bc.patch b/.yarn/patches/@grafana-scenes-npm-8.2.6-4c67e9d1bc.patch
+new file mode 100644
+index 00000000..c01de755
+--- /dev/null
++++ b/.yarn/patches/@grafana-scenes-npm-8.2.6-4c67e9d1bc.patch
+@@ -0,0 +1,131 @@
++diff --git a/dist/esm/components/layout/grid/SceneGridLayoutRenderer.js b/dist/esm/components/layout/grid/SceneGridLayoutRenderer.js
++index 09fae01f5e0a6ccc0a68acb66c9944260ffcf02d..d5b2a10f9fc74ff9577017be35bd4d978066968e 100644
++--- a/dist/esm/components/layout/grid/SceneGridLayoutRenderer.js
+++++ b/dist/esm/components/layout/grid/SceneGridLayoutRenderer.js
++@@ -1,14 +1,13 @@
++-import React, { useRef, useEffect } from 'react';
+++import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
++ import ReactGridLayout from 'react-grid-layout';
++ import { GRID_CELL_HEIGHT, GRID_COLUMN_COUNT, GRID_CELL_VMARGIN } from './constants.js';
++ import { LazyLoader } from '../LazyLoader.js';
++ import { useStyles2 } from '@grafana/ui';
++ import { css, cx } from '@emotion/css';
++-import { useMeasure } from 'react-use';
++ 
++ function SceneGridLayoutRenderer({ model }) {
++   const { children, isLazy, isDraggable, isResizable } = model.useState();
++-  const [outerDivRef, { width, height }] = useMeasure();
+++  const [outerDivRef, { width, height }] = useMeasureBeforePaint();
++   const ref = useRef(null);
++   useEffect(() => {
++     updateAnimationClass(ref, !!isDraggable);
++@@ -70,6 +69,50 @@ function SceneGridLayoutRenderer({ model }) {
++   };
++   return /* @__PURE__ */ React.createElement("div", { ref: outerDivRef, className: gridWrapperClass }, renderGrid(width, height));
++ }
+++/**
+++ * Same contract as react-use `useMeasure`, but the element is measured synchronously in a layout effect.
+++ *
+++ * `useMeasure` only reports a size from the ResizeObserver callback, which runs after the browser has painted the
+++ * grid wrapper once with width 0, i.e. without the grid. A dashboard RowsLayout has one grid per row, so that first
+++ * paint shows every row header without any panels (a bare list of row titles) until all grids are rendered.
+++ * Measuring before paint renders row headers and their grids in the same frame.
+++ */
+++function useMeasureBeforePaint() {
+++  const [element, ref] = useState(null);
+++  const [rect, setRect] = useState(EMPTY_RECT);
+++  useLayoutEffect(() => {
+++    if (!element) {
+++      return;
+++    }
+++    const update = (next) => setRect((prev) => isSameRect(prev, next) ? prev : toRect(next));
+++    update(getContentRect(element));
+++    const observer = new ResizeObserver((entries) => {
+++      if (entries[0]) {
+++        update(entries[0].contentRect);
+++      }
+++    });
+++    observer.observe(element);
+++    return () => observer.disconnect();
+++  }, [element]);
+++  return [ref, rect];
+++}
+++const EMPTY_RECT = { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, bottom: 0, right: 0 };
+++function toRect({ x, y, width, height, top, left, bottom, right }) {
+++  return { x, y, width, height, top, left, bottom, right };
+++}
+++function isSameRect(a, b) {
+++  return a.width === b.width && a.height === b.height && a.x === b.x && a.y === b.y;
+++}
+++function getContentRect(element) {
+++  const box = element.getBoundingClientRect();
+++  const style = getComputedStyle(element);
+++  const px = (name) => parseFloat(style[name]) || 0;
+++  const left = px("paddingLeft");
+++  const top = px("paddingTop");
+++  const width = Math.max(0, box.width - px("borderLeftWidth") - px("borderRightWidth") - left - px("paddingRight"));
+++  const height = Math.max(0, box.height - px("borderTopWidth") - px("borderBottomWidth") - top - px("paddingBottom"));
+++  return { x: left, y: top, width, height, top, left, bottom: top + height, right: left + width };
+++}
++ const gridWrapperClass = css({
++   flex: "1 1 auto",
++   position: "relative",
++diff --git a/dist/index.js b/dist/index.js
++index b562fe4ca35c1af05aa4168d6cff7320eef0d5bd..dda5cde17eca93b128945c907a5ccd00a207d414 100644
++--- a/dist/index.js
+++++ b/dist/index.js
++@@ -14932,9 +14932,53 @@ function isSceneGridLayout(child) {
++   return child instanceof SceneGridLayout;
++ }
++ 
+++/**
+++ * Same contract as react-use `useMeasure`, but the element is measured synchronously in a layout effect.
+++ *
+++ * `useMeasure` only reports a size from the ResizeObserver callback, which runs after the browser has painted the
+++ * grid wrapper once with width 0, i.e. without the grid. A dashboard RowsLayout has one grid per row, so that first
+++ * paint shows every row header without any panels (a bare list of row titles) until all grids are rendered.
+++ * Measuring before paint renders row headers and their grids in the same frame.
+++ */
+++function useMeasureBeforePaint() {
+++  const [element, ref] = React.useState(null);
+++  const [rect, setRect] = React.useState(EMPTY_RECT);
+++  React.useLayoutEffect(() => {
+++    if (!element) {
+++      return;
+++    }
+++    const update = (next) => setRect((prev) => isSameRect(prev, next) ? prev : toRect(next));
+++    update(getContentRect(element));
+++    const observer = new ResizeObserver((entries) => {
+++      if (entries[0]) {
+++        update(entries[0].contentRect);
+++      }
+++    });
+++    observer.observe(element);
+++    return () => observer.disconnect();
+++  }, [element]);
+++  return [ref, rect];
+++}
+++const EMPTY_RECT = { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, bottom: 0, right: 0 };
+++function toRect({ x, y, width, height, top, left, bottom, right }) {
+++  return { x, y, width, height, top, left, bottom, right };
+++}
+++function isSameRect(a, b) {
+++  return a.width === b.width && a.height === b.height && a.x === b.x && a.y === b.y;
+++}
+++function getContentRect(element) {
+++  const box = element.getBoundingClientRect();
+++  const style = getComputedStyle(element);
+++  const px = (name) => parseFloat(style[name]) || 0;
+++  const left = px("paddingLeft");
+++  const top = px("paddingTop");
+++  const width = Math.max(0, box.width - px("borderLeftWidth") - px("borderRightWidth") - left - px("paddingRight"));
+++  const height = Math.max(0, box.height - px("borderTopWidth") - px("borderBottomWidth") - top - px("paddingBottom"));
+++  return { x: left, y: top, width, height, top, left, bottom: top + height, right: left + width };
+++}
++ function SceneGridLayoutRenderer({ model }) {
++   const { children, isLazy, isDraggable, isResizable } = model.useState();
++-  const [outerDivRef, { width, height }] = reactUse.useMeasure();
+++  const [outerDivRef, { width, height }] = useMeasureBeforePaint();
++   const ref = React.useRef(null);
++   React.useEffect(() => {
++     updateAnimationClass(ref, !!isDraggable);
+diff --git a/package.json b/package.json
+index 1e03583e..89a2eb2c 100644
+--- a/package.json
++++ b/package.json
+@@ -444,7 +444,8 @@
+     "@types/slate-react/immutable": "^4.0.0",
+     "ws": "^8.20.1",
+     "js-cookie": "^3.0.7",
+-    "@opentelemetry/core": "2.8.0"
++    "@opentelemetry/core": "2.8.0",
++    "@grafana/scenes": "patch:@grafana/scenes@npm%3A8.2.6#~/.yarn/patches/@grafana-scenes-npm-8.2.6-4c67e9d1bc.patch"
+   },
+   "workspaces": {
+     "packages": [
+diff --git a/yarn.lock b/yarn.lock
+index 544533de..6002fd44 100644
+--- a/yarn.lock
++++ b/yarn.lock
+@@ -2954,7 +2954,7 @@ __metadata:
+   languageName: node
+   linkType: hard
+ 
+-"@grafana/scenes@npm:8.2.6, @grafana/scenes@npm:^8.2.6":
++"@grafana/scenes@npm:8.2.6":
+   version: 8.2.6
+   resolution: "@grafana/scenes@npm:8.2.6"
+   dependencies:
+@@ -2985,6 +2985,37 @@ __metadata:
+   languageName: node
+   linkType: hard
+ 
++"@grafana/scenes@patch:@grafana/scenes@npm%3A8.2.6#~/.yarn/patches/@grafana-scenes-npm-8.2.6-4c67e9d1bc.patch":
++  version: 8.2.6
++  resolution: "@grafana/scenes@patch:@grafana/scenes@npm%3A8.2.6#~/.yarn/patches/@grafana-scenes-npm-8.2.6-4c67e9d1bc.patch::version=8.2.6&hash=97eeee"
++  dependencies:
++    "@emotion/css": "npm:11.10.5"
++    "@emotion/react": "npm:11.10.5"
++    "@floating-ui/react": "npm:^0.26.16"
++    "@leeoniya/ufuzzy": "npm:^1.0.16"
++    "@tanstack/react-virtual": "npm:^3.9.0"
++    history: "npm:^4.9.0"
++    lodash: "npm:^4.17.21"
++    react-grid-layout: "npm:^1.3.4"
++    react-select: "npm:^5.10.2"
++    react-use: "npm:^17.5.0"
++    react-virtualized-auto-sizer: "npm:^1.0.24"
++    uuid: "npm:^9.0.0"
++  peerDependencies:
++    "@grafana/data": ">=11.6"
++    "@grafana/e2e-selectors": ">=11.6"
++    "@grafana/i18n": "*"
++    "@grafana/runtime": ">=11.6"
++    "@grafana/schema": ">=11.6"
++    "@grafana/ui": ">=11.6"
++    react: ^18.0.0
++    react-dom: ^18.0.0
++    react-router-dom: ^6.28.0
++    rxjs: ^7.8.1
++  checksum: 10/952bd52bd86adf4a0bfec7c3c5eb36c4a660385ef6c665ee2585c9f4cb2e9a209d2a73a1d4b89f86118c2ead0e0d54b181ed96be31c006a462f845b222d521ed
++  languageName: node
++  linkType: hard
++
+ "@grafana/schema@npm:13.1.0, @grafana/schema@workspace:*, @grafana/schema@workspace:packages/grafana-schema":
+   version: 0.0.0-use.local
+   resolution: "@grafana/schema@workspace:packages/grafana-schema"

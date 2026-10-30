@@ -1,0 +1,187 @@
+diff --git a/packages/scenes/src/components/layout/grid/SceneGridLayout.test.tsx b/packages/scenes/src/components/layout/grid/SceneGridLayout.test.tsx
+index 8c9d026..adde2c9 100644
+--- a/packages/scenes/src/components/layout/grid/SceneGridLayout.test.tsx
++++ b/packages/scenes/src/components/layout/grid/SceneGridLayout.test.tsx
+@@ -12,9 +12,8 @@ import { SceneGridLayout } from './SceneGridLayout';
+ import { SceneGridRow } from './SceneGridRow';
+ import * as utils from './utils';
+ 
+-jest.mock('react-use', () => ({
+-  ...jest.requireActual('react-use'),
+-  useMeasure: () => [() => {}, { width: 800, height: 600 }],
++jest.mock('./useMeasureBeforePaint', () => ({
++  useMeasureBeforePaint: () => [() => {}, { width: 800, height: 600 }],
+ }));
+ 
+ jest.mock('./utils', () => ({
+diff --git a/packages/scenes/src/components/layout/grid/SceneGridLayoutRenderer.tsx b/packages/scenes/src/components/layout/grid/SceneGridLayoutRenderer.tsx
+index d9e79bd..e630f19 100644
+--- a/packages/scenes/src/components/layout/grid/SceneGridLayoutRenderer.tsx
++++ b/packages/scenes/src/components/layout/grid/SceneGridLayoutRenderer.tsx
+@@ -1,4 +1,4 @@
+-import React, { RefCallback, useEffect, useRef } from 'react';
++import React, { useEffect, useRef } from 'react';
+ import ReactGridLayout from 'react-grid-layout';
+ import { SceneComponentProps } from '../../../core/types';
+ import { GRID_CELL_HEIGHT, GRID_CELL_VMARGIN, GRID_COLUMN_COUNT } from './constants';
+@@ -8,11 +8,11 @@ import { SceneGridItemLike } from './types';
+ import { useStyles2 } from '@grafana/ui';
+ import { css, cx } from '@emotion/css';
+ import { GrafanaTheme2 } from '@grafana/data';
+-import { useMeasure } from 'react-use';
++import { useMeasureBeforePaint } from './useMeasureBeforePaint';
+ 
+ export function SceneGridLayoutRenderer({ model }: SceneComponentProps<SceneGridLayout>) {
+   const { children, isLazy, isDraggable, isResizable } = model.useState();
+-  const [outerDivRef, { width, height }] = useMeasure();
++  const [outerDivRef, { width, height }] = useMeasureBeforePaint<HTMLDivElement>();
+   const ref = useRef<HTMLDivElement | null>(null);
+ 
+   /**
+@@ -84,7 +84,7 @@ export function SceneGridLayoutRenderer({ model }: SceneComponentProps<SceneGrid
+   };
+ 
+   return (
+-    <div ref={outerDivRef as RefCallback<HTMLDivElement>} className={gridWrapperClass}>
++    <div ref={outerDivRef} className={gridWrapperClass}>
+       {renderGrid(width, height)}
+     </div>
+   );
+diff --git a/packages/scenes/src/components/layout/grid/useMeasureBeforePaint.test.tsx b/packages/scenes/src/components/layout/grid/useMeasureBeforePaint.test.tsx
+new file mode 100644
+index 0000000..8235ba8
+--- /dev/null
++++ b/packages/scenes/src/components/layout/grid/useMeasureBeforePaint.test.tsx
+@@ -0,0 +1,62 @@
++import { act, render } from '@testing-library/react';
++import React, { useLayoutEffect } from 'react';
++
++import { ElementSize, useMeasureBeforePaint } from './useMeasureBeforePaint';
++
++describe('useMeasureBeforePaint', () => {
++  let observerCallback: ResizeObserverCallback | undefined;
++  const disconnect = jest.fn();
++
++  beforeEach(() => {
++    observerCallback = undefined;
++    disconnect.mockClear();
++    window.ResizeObserver = jest.fn().mockImplementation((cb: ResizeObserverCallback) => {
++      observerCallback = cb;
++      return { observe: jest.fn(), unobserve: jest.fn(), disconnect };
++    });
++    jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 820, height: 610 } as DOMRect);
++  });
++
++  afterEach(() => {
++    jest.restoreAllMocks();
++  });
++
++  function Measured({ onSize, style }: { onSize: (size: ElementSize) => void; style?: React.CSSProperties }) {
++    const [ref, size] = useMeasureBeforePaint<HTMLDivElement>();
++    // Layout effects of the same commit run before paint: this records what the first painted frame shows.
++    useLayoutEffect(() => {
++      onSize(size);
++    });
++    return <div ref={ref} style={style} />;
++  }
++
++  it('reports the content box size before the first paint, without waiting for ResizeObserver', () => {
++    const sizes: ElementSize[] = [];
++    render(<Measured onSize={(s) => sizes.push(s)} style={{ padding: '5px 10px', borderWidth: 0 }} />);
++
++    expect(sizes[sizes.length - 1]).toEqual({ width: 800, height: 600 });
++    expect(observerCallback).toBeDefined();
++  });
++
++  it('follows later size changes from ResizeObserver and ignores unchanged sizes', () => {
++    const sizes: ElementSize[] = [];
++    render(<Measured onSize={(s) => sizes.push(s)} />);
++    const renders = sizes.length;
++
++    act(() =>
++      observerCallback!([{ contentRect: { width: 820, height: 610 } } as ResizeObserverEntry], {} as ResizeObserver)
++    );
++    expect(sizes).toHaveLength(renders);
++
++    act(() =>
++      observerCallback!([{ contentRect: { width: 500, height: 300 } } as ResizeObserverEntry], {} as ResizeObserver)
++    );
++    expect(sizes[sizes.length - 1]).toEqual({ width: 500, height: 300 });
++  });
++
++  it('disconnects the observer on unmount', () => {
++    const { unmount } = render(<Measured onSize={() => {}} />);
++    unmount();
++    expect(disconnect).toHaveBeenCalled();
++  });
++});
+diff --git a/packages/scenes/src/components/layout/grid/useMeasureBeforePaint.ts b/packages/scenes/src/components/layout/grid/useMeasureBeforePaint.ts
+new file mode 100644
+index 0000000..7c1c598
+--- /dev/null
++++ b/packages/scenes/src/components/layout/grid/useMeasureBeforePaint.ts
+@@ -0,0 +1,64 @@
++import { RefCallback, useLayoutEffect, useState } from 'react';
++
++export interface ElementSize {
++  width: number;
++  height: number;
++}
++
++const EMPTY_SIZE: ElementSize = { width: 0, height: 0 };
++
++/**
++ * Like react-use `useMeasure`, but the first measurement happens synchronously in a layout effect.
++ *
++ * `useMeasure` only reports a size from the ResizeObserver callback. That update is applied after the browser has
++ * painted the element once with size 0. For a grid that means one frame without the grid. When a page contains
++ * several grids (e.g. a dashboard RowsLayout, one grid per row), that frame shows every row header without any
++ * panels until all grids are rendered.
++ *
++ * State updates from layout effects are applied before paint, so the grid is rendered in the same frame as its
++ * surroundings. Later size changes are still reported by a ResizeObserver.
++ */
++export function useMeasureBeforePaint<T extends Element>(): [RefCallback<T>, ElementSize] {
++  const [element, ref] = useState<T | null>(null);
++  const [size, setSize] = useState<ElementSize>(EMPTY_SIZE);
++
++  useLayoutEffect(() => {
++    if (!element) {
++      return;
++    }
++
++    const update = ({ width, height }: ElementSize) =>
++      setSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
++
++    update(getContentBoxSize(element));
++
++    if (typeof ResizeObserver === 'undefined') {
++      return;
++    }
++
++    const observer = new ResizeObserver(([entry]) => entry && update(entry.contentRect));
++    observer.observe(element);
++
++    return () => observer.disconnect();
++  }, [element]);
++
++  return [ref, size];
++}
++
++/** Same box as ResizeObserver `contentRect`: border box minus borders and padding. */
++function getContentBoxSize(element: Element): ElementSize {
++  const { width, height } = element.getBoundingClientRect();
++  const style = getComputedStyle(element);
++  const px = (value: string) => parseFloat(value) || 0;
++
++  return {
++    width: Math.max(
++      0,
++      width - px(style.borderLeftWidth) - px(style.borderRightWidth) - px(style.paddingLeft) - px(style.paddingRight)
++    ),
++    height: Math.max(
++      0,
++      height - px(style.borderTopWidth) - px(style.borderBottomWidth) - px(style.paddingTop) - px(style.paddingBottom)
++    ),
++  };
++}

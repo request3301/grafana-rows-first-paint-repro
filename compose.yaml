@@ -1,0 +1,40 @@
+services:
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:13.3.0}
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 2s
+      retries: 60
+
+  # Imports dashboards/rows.json through the v2 dashboard API once Grafana is healthy.
+  setup:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      grafana:
+        condition: service_healthy
+    volumes:
+      - ./dashboards:/dashboards:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -e
+        grafana=http://admin:admin@grafana:3000
+        api=$$grafana/apis/dashboard.grafana.app/v2/namespaces/default/dashboards
+        # A folder, so that the anonymous Viewer gets the default folder view permission.
+        curl -fsS -X POST -H 'Content-Type: application/json' --data '{"uid":"repro","title":"Repro"}' "$$grafana/api/folders" >/dev/null 2>&1 || true
+        curl -fsS -X DELETE "$$api/rows-first-paint" >/dev/null 2>&1 || true
+        sed 's/"name": "rows-first-paint"/"name": "rows-first-paint", "annotations": {"grafana.app\/folder": "repro"}/' /dashboards/rows.json |
+          curl -fsS -X POST -H 'Content-Type: application/json' --data @- "$$api" >/dev/null
+        echo "Imported: http://localhost:$${GRAFANA_PORT:-3000}/d/rows-first-paint"
+    environment:
+      GRAFANA_PORT: ${GRAFANA_PORT:-3000}
