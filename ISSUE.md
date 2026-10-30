@@ -7,10 +7,14 @@
 When a dashboard that uses the v2 `RowsLayout` loads, Grafana first paints every row header with an empty grid.
 The page shows only a list of row titles. After that, all panels appear at once.
 With 22 rows / 132 panels this frame stays on screen for 0.6–1.3 s on a desktop and ~4 s with 4x CPU throttling.
-This is common for kiosk/TV clients. In kiosk mode the chevrons and navigation are hidden, so it looks like a page of
-plain text.
+This is common for kiosk/TV clients. In kiosk mode, row titles are rendered as plain text with no chevron, so viewers
+see a page of stray strings:
 
-![row titles without panels](https://raw.githubusercontent.com/request3301/grafana-rows-first-paint-repro/main/docs/row-titles-without-panels.png)
+![kiosk: row titles without panels](https://raw.githubusercontent.com/request3301/grafana-rows-first-paint-repro/main/docs/kiosk-row-titles-without-panels.png)
+
+The same frame without kiosk:
+
+![non-kiosk: row titles without panels](https://raw.githubusercontent.com/request3301/grafana-rows-first-paint-repro/main/docs/row-titles-without-panels-non-kiosk.png)
 
 ### What did you expect to happen?
 
@@ -26,7 +30,7 @@ Classic (v1) dashboards with rows don't show it. It happens with every v2 `RowsL
 Repository: https://github.com/request3301/grafana-rows-first-paint-repro
 
 1. `docker compose up -d` (stock `grafana/grafana:13.3.0`, TestData, a generated v2 dashboard with 22 rows x 6 panels)
-2. Open http://localhost:3000/d/rows-first-paint with DevTools CPU throttling 4x and the cache disabled, then reload.
+2. Open http://localhost:3000/d/rows-first-paint?kiosk with DevTools CPU throttling 4x and the cache disabled, then reload.
 3. Or run `npm install && npx playwright install chromium && npm run repro`. It checks every animation frame and
    reports frames where row headers are present but none of their grids are rendered:
    ```

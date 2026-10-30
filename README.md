@@ -4,9 +4,17 @@ Minimal reproduction for a first-paint issue in dashboards that use the v2 `Rows
 On load, Grafana first paints every row header with an empty (0 px) grid, so the page shows a bare list of
 row titles. It then renders all grids and panels in one long task, and that frame stays on screen until it finishes.
 
-![Row titles without panels, Grafana 13.3.0, 4x CPU throttling](docs/row-titles-without-panels.png)
+Kiosk mode (`?kiosk`), Grafana 13.3.0, 4x CPU throttling. Kiosk renders row titles as plain text with no chevron,
+so the page looks like a list of stray strings:
 
-Recording (Grafana 13.3.0, 4x CPU throttling): [docs/load-cpu4x-13.3.0.webm](docs/load-cpu4x-13.3.0.webm)
+![Kiosk: row titles without panels](docs/kiosk-row-titles-without-panels.png)
+
+The same frame outside kiosk mode, where the row headers are recognizable:
+
+![Non-kiosk: row titles without panels](docs/row-titles-without-panels-non-kiosk.png)
+
+Recordings (Grafana 13.3.0, 4x CPU throttling): [kiosk](docs/kiosk-load-cpu4x-13.3.0.webm),
+[non-kiosk](docs/load-cpu4x-13.3.0-non-kiosk.webm).
 
 ## Run it
 
@@ -19,6 +27,7 @@ npm install
 npx playwright install chromium
 npm run repro                        # 3 cold loads, checks every animation frame
 npm run repro -- --cpu=4 --kiosk     # slower client (like a kiosk/TV), kiosk mode
+npm run repro -- --kiosk --url='http://localhost:3000/d/rows-first-paint?theme=light'
 npm run repro -- --video=videos      # also record the loads
 ```
 
@@ -53,7 +62,8 @@ already contain their `.react-grid-layout`. A run fails if a frame has row heade
   So the browser first paints all row headers with empty grids.
 - Then, in a single long task, all grids and panels are rendered (~0.6 s for 132 panels on a desktop CPU, several
   seconds on slower clients). The row-titles-only frame stays visible for that whole task.
-- In kiosk mode the row chevrons and navigation are hidden, so this looks like a page of stray text.
+- In kiosk mode, row titles are rendered as plain text with no chevron, and navigation is hidden. The frame is a bare
+  list of strings, and viewers can't tell they are row titles.
 - Classic dashboards are not affected in the same way. Their rows are items inside the one grid, so nothing is
   painted before that grid is measured.
 
